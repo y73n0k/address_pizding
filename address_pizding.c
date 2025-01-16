@@ -10,6 +10,10 @@
 #include <sys/user.h>
 #include <sys/wait.h>
 
+#ifdef IS32
+#include <asm/unistd_32.h>
+#endif
+
 #ifndef WORDLEN
 #define WORDLEN 4
 #endif
@@ -113,8 +117,16 @@ int main(int argc, char *argv[]) {
             ptrace(PTRACE_GETREGS, pid, 0, &state);
             if (!found) {
                 // searching for openat syscall with path which contains SUBSTR
+                #ifdef IS32
+                if (state.orig_rax == __NR_openat) {
+                    char *path = pizding_string(pid, state.rcx);
+                #else
                 if (state.orig_rax == SYS_openat) {
                     char *path = pizding_string(pid, state.rsi);
+                #endif
+
+                    // printf("PATH: %s\n", path);
+
                     if (strstr(path, SUBSTR) != NULL) {
                         found = 1;
                         printf("FOUND: %s\n", path);
@@ -128,9 +140,17 @@ int main(int argc, char *argv[]) {
                 }
             } else {
                 // find first mmap(NULL,...,...,...,fd,...) after opening path
+                #ifdef IS32
+                if (state.orig_rax == __NR_mmap2) {
+                #else
                 if (state.orig_rax == SYS_mmap) {
+                #endif
                     ptrace(PTRACE_GETREGS, pid, 0, &state);
-                    if (state.r8 == fd && state.rdi == 0) {
+                    #ifdef IS32
+                    if (state.rdi == fd && !state.rbx) {
+                    #else
+                    if (state.r8 == fd && !state.rdi) {
+                    #endif
                         step(pid, &wait_status);
                         ptrace(PTRACE_GETREGS, pid, 0, &state);
                         printf("AT: %llx\n", state.rax);  // mmap returns base of library
